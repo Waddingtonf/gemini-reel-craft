@@ -8,8 +8,11 @@ interface Video {
   title: string;
   prompt: string;
   video_url: string | null;
+  video_uri: string | null;
   status: string;
   created_at: string;
+  completed_at: string | null;
+  error_message: string | null;
   duration?: number;
   file_size?: number;
 }
@@ -35,7 +38,8 @@ export default function VideoCard({ video }: VideoCardProps) {
       case 'completed':
         return 'bg-green-100 text-green-800 border-green-200';
       case 'generating':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      case 'processing':
+        return 'bg-blue-100 text-blue-800 border-blue-200';
       case 'failed':
         return 'bg-red-100 text-red-800 border-red-200';
       default:
@@ -49,6 +53,8 @@ export default function VideoCard({ video }: VideoCardProps) {
         return 'Concluído';
       case 'generating':
         return 'Gerando...';
+      case 'processing':
+        return 'Processando...';
       case 'failed':
         return 'Falhou';
       default:
@@ -73,19 +79,19 @@ export default function VideoCard({ video }: VideoCardProps) {
         </Badge>
       </div>
 
-      {video.status === 'generating' && (
+      {(video.status === 'generating' || video.status === 'processing') && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <div className="animate-spin rounded-full h-3 w-3 border-b border-primary"></div>
-          <span>Processando vídeo...</span>
+          <span>{video.status === 'processing' ? 'Processando vídeo...' : 'Iniciando geração...'}</span>
         </div>
       )}
 
       {video.status === 'completed' && (
         <>
           <div className="aspect-video bg-muted rounded-md flex items-center justify-center">
-            {video.video_url ? (
+            {(video.video_url || video.video_uri) ? (
               <video 
-                src={video.video_url} 
+                src={video.video_uri || video.video_url || ''} 
                 className="w-full h-full rounded-md object-cover"
                 controls
                 preload="metadata"
@@ -93,7 +99,7 @@ export default function VideoCard({ video }: VideoCardProps) {
             ) : (
               <div className="text-center">
                 <FileVideo className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-                <p className="text-xs text-muted-foreground">Vídeo processando</p>
+                <p className="text-xs text-muted-foreground">Vídeo não disponível</p>
               </div>
             )}
           </div>
@@ -111,12 +117,32 @@ export default function VideoCard({ video }: VideoCardProps) {
               )}
             </div>
             <div className="flex gap-1">
-              {video.video_url && (
+              {(video.video_url || video.video_uri) && (
                 <>
-                  <Button size="sm" variant="ghost" className="h-6 px-2">
+                  <Button 
+                    size="sm" 
+                    variant="ghost" 
+                    className="h-6 px-2"
+                    onClick={() => {
+                      const videoElement = document.querySelector(`video[src="${video.video_uri || video.video_url}"]`) as HTMLVideoElement;
+                      if (videoElement) {
+                        videoElement.play();
+                      }
+                    }}
+                  >
                     <Play className="w-3 h-3" />
                   </Button>
-                  <Button size="sm" variant="ghost" className="h-6 px-2">
+                  <Button 
+                    size="sm" 
+                    variant="ghost" 
+                    className="h-6 px-2"
+                    onClick={() => {
+                      const url = video.video_uri || video.video_url;
+                      if (url) {
+                        window.open(url, '_blank');
+                      }
+                    }}
+                  >
                     <Download className="w-3 h-3" />
                   </Button>
                 </>
@@ -129,6 +155,9 @@ export default function VideoCard({ video }: VideoCardProps) {
       {video.status === 'failed' && (
         <div className="text-center py-4">
           <p className="text-xs text-red-500">Falha na geração do vídeo</p>
+          {video.error_message && (
+            <p className="text-xs text-red-400 mt-1 break-words">{video.error_message}</p>
+          )}
           <Button size="sm" variant="outline" className="mt-2 text-xs">
             Tentar novamente
           </Button>

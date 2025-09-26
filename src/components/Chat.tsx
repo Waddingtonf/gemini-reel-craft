@@ -22,8 +22,13 @@ interface Video {
   title: string;
   prompt: string;
   video_url: string | null;
+  video_uri: string | null;
   status: string;
   created_at: string;
+  completed_at: string | null;
+  error_message: string | null;
+  duration?: number;
+  file_size?: number;
 }
 
 export default function Chat() {
