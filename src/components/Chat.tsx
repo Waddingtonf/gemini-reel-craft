@@ -41,6 +41,7 @@ export default function Chat() {
   const { user } = useAuth();
   const { toast } = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -55,7 +56,6 @@ export default function Chat() {
       loadChatHistory();
       loadVideos();
       
-      // Set up real-time subscription for video status updates
       const channel = supabase
         .channel('video-updates')
         .on(
@@ -67,11 +67,11 @@ export default function Chat() {
             filter: `user_id=eq.${user.id}`
           },
           (payload) => {
-            console.log('Video updated:', payload);
-            // Reload videos when any video is updated
-            loadVideos();
+            console.log('Video updated via Realtime:', payload);
+            setVideos(currentVideos =>
+              currentVideos.map(v => v.id === payload.new.id ? { ...v, ...payload.new } : v)
+            );
             
-            // If video is completed, show success toast
             if (payload.new.status === 'completed') {
               toast({
                 title: "Vídeo concluído!",
@@ -90,16 +90,56 @@ export default function Chat() {
 
       return () => {
         supabase.removeChannel(channel);
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+        }
       };
     }
   }, [user, toast]);
+  
+  // NOVO: Hook para controlar o polling de status
+  useEffect(() => {
+    const isProcessing = videos.some(v => v.status === 'processing');
+
+    const startPolling = () => {
+      // Inicia o polling apenas se não houver um em andamento
+      if (!pollingIntervalRef.current) {
+        pollingIntervalRef.current = setInterval(async () => {
+          console.log('Polling for video status...');
+          try {
+            await supabase.functions.invoke('poll-video-status');
+          } catch (error) {
+            console.error("Polling failed:", error);
+          }
+        }, 15000); // Roda a cada 15 segundos
+      }
+    };
+
+    const stopPolling = () => {
+      if (pollingIntervalRef.current) {
+        console.log('Stopping polling.');
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+
+    if (isProcessing) {
+      startPolling();
+    } else {
+      stopPolling();
+    }
+
+    return () => stopPolling(); // Limpa o intervalo ao desmontar o componente
+  }, [videos]);
+
 
   const loadChatHistory = async () => {
     try {
+      if (!user) return;
       const { data, error } = await supabase
         .from('prompts')
         .select('*')
-        .eq('user_id', user?.id)
+        .eq('user_id', user.id)
         .order('created_at', { ascending: true })
         .limit(50);
 
@@ -118,10 +158,11 @@ export default function Chat() {
 
   const loadVideos = async () => {
     try {
+        if (!user) return;
       const { data, error } = await supabase
         .from('videos')
         .select('*')
-        .eq('user_id', user?.id)
+        .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -142,10 +183,10 @@ export default function Chat() {
       type: 'user',
       created_at: new Date().toISOString()
     };
-
     setMessages(prev => [...prev, userMessage]);
 
     try {
+      // ALTERAÇÃO: A resposta da função apenas inicia o processo
       const { data, error } = await supabase.functions.invoke('generate-video', {
         body: {
           prompt: input,
@@ -154,34 +195,35 @@ export default function Chat() {
       });
 
       if (error) throw error;
-
+      
+      // ALTERAÇÃO: Mensagem do assistente confirma o início do processo
       const assistantMessage: Message = {
         id: `temp-assistant-${Date.now()}`,
-        content: data.aiResponse || 'Vídeo gerado com sucesso!',
+        content: `Certo! Iniciando a geração do vídeo com o título "${title}". Avisarei quando estiver pronto.`,
         type: 'assistant',
-        video_id: data.video?.id,
+        video_id: data.videoId,
         created_at: new Date().toISOString()
       };
-
-      setMessages(prev => [...prev.slice(0, -1), userMessage, assistantMessage]);
+      
+      setMessages(prev => [...prev, assistantMessage]);
       
       toast({
-        title: "Vídeo gerado!",
-        description: "Seu vídeo foi gerado com sucesso e está disponível na galeria.",
+        title: "Processo iniciado!",
+        description: "Seu vídeo está sendo gerado. Você pode acompanhar o status na galeria.",
       });
 
-      // Reload data
-      loadChatHistory();
+      // Recarrega os vídeos para mostrar o novo item com status "processing"
       loadVideos();
 
     } catch (error: any) {
-      console.error('Error generating video:', error);
+      console.error('Error starting video generation:', error);
       toast({
-        title: "Erro",
-        description: error.message || "Falha ao gerar o vídeo. Tente novamente.",
+        title: "Erro ao iniciar",
+        description: error.message || "Não foi possível iniciar a geração do vídeo.",
         variant: "destructive",
       });
-      setMessages(prev => prev.slice(0, -1));
+      // Remove a mensagem de usuário que falhou
+      setMessages(prev => prev.filter(m => m.id !== userMessage.id));
     } finally {
       setInput('');
       setTitle('');
@@ -248,22 +290,6 @@ export default function Chat() {
                         }`}
                       >
                         <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                        {message.video_id && (
-                          <div className="mt-2 p-2 bg-muted rounded-md">
-                            <p className="text-xs text-muted-foreground mb-1">Vídeo relacionado:</p>
-                            <div className="text-xs">
-                              ID: {message.video_id}
-                              {videos.find(v => v.id === message.video_id) && (
-                                <span className="ml-2">
-                                  Status: {videos.find(v => v.id === message.video_id)?.status === 'completed' ? '✅ Concluído' : 
-                                          videos.find(v => v.id === message.video_id)?.status === 'processing' ? '⏳ Processando' :
-                                          videos.find(v => v.id === message.video_id)?.status === 'failed' ? '❌ Falhou' : 
-                                          '⏳ Gerando'}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -291,7 +317,7 @@ export default function Chat() {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
-                    handleSubmit(e);
+                    handleSubmit(e as any);
                   }
                 }}
               />
