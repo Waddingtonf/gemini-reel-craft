@@ -101,49 +101,55 @@ serve(async (req) => {
         video_id: videoRecord.id
       });
 
-    // Call Gemini VEO 3 API
+    // Get required environment variables
     const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
+    const projectId = Deno.env.get('GOOGLE_CLOUD_PROJECT_ID');
+    const location = Deno.env.get('GOOGLE_CLOUD_LOCATION') || 'us-central1';
     
-    if (!geminiApiKey) {
-      throw new Error('GEMINI_API_KEY not configured');
+    if (!geminiApiKey || !projectId) {
+      throw new Error('GEMINI_API_KEY and GOOGLE_CLOUD_PROJECT_ID must be configured');
     }
 
-    console.log('Calling Gemini API...');
+    console.log('Calling Video Generation API for video ID:', videoRecord.id);
     
-    // Mock video generation for now (Gemini VEO 3 API integration)
-    const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${geminiApiKey}`, {
+    // Call Gemini VEO 3 video generation API
+    const veoApiUrl = `https://generativelanguage.googleapis.com/v1beta/projects/${projectId}/locations/${location}/videos:generate`;
+    
+    const videoResponse = await fetch(veoApiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-goog-api-key': geminiApiKey,
       },
       body: JSON.stringify({
-        contents: [{
-          parts: [{
-            text: `Generate a detailed video concept based on this prompt: ${enhancedPrompt}. Provide technical specifications and visual descriptions.`
-          }]
-        }]
+        generateVideoRequest: {
+          prompt: enhancedPrompt,
+          model: 'models/veo-3.0-generate-001'
+        }
       })
     });
 
-    if (!geminiResponse.ok) {
-      throw new Error(`Gemini API error: ${geminiResponse.statusText}`);
+    if (!videoResponse.ok) {
+      const errorText = await videoResponse.text();
+      console.error('Video Generation API error:', errorText);
+      throw new Error(`Video Generation API failed with status ${videoResponse.status}`);
     }
 
-    const geminiData = await geminiResponse.json();
-    console.log('Gemini response received');
+    const videoData = await videoResponse.json();
+    const operationName = videoData.name;
+    
+    if (!operationName) {
+      throw new Error('No operation name returned from VEO API');
+    }
 
-    // For now, we'll simulate video generation
-    // In production, this would be replaced with actual VEO 3 video generation
-    const mockVideoUrl = `https://example.com/generated-video-${videoRecord.id}.mp4`;
+    console.log(`Video ${videoRecord.id} started processing with operation:`, operationName);
 
-    // Update video record with completion
+    // Update video record with processing status and operation name
     const { error: updateError } = await supabaseClient
       .from('videos')
       .update({
-        status: 'completed',
-        video_url: mockVideoUrl,
-        duration: 30, // Mock duration
-        file_size: 10485760 // Mock file size (10MB)
+        status: 'processing',
+        operation_name: operationName
       })
       .eq('id', videoRecord.id);
 
