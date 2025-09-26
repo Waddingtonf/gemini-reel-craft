@@ -49,8 +49,45 @@ export default function Chat() {
     if (user) {
       loadChatHistory();
       loadVideos();
+      
+      // Set up real-time subscription for video status updates
+      const channel = supabase
+        .channel('video-updates')
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'videos',
+            filter: `user_id=eq.${user.id}`
+          },
+          (payload) => {
+            console.log('Video updated:', payload);
+            // Reload videos when any video is updated
+            loadVideos();
+            
+            // If video is completed, show success toast
+            if (payload.new.status === 'completed') {
+              toast({
+                title: "Vídeo concluído!",
+                description: `O vídeo "${payload.new.title}" foi gerado com sucesso!`,
+              });
+            } else if (payload.new.status === 'failed') {
+              toast({
+                title: "Falha na geração",
+                description: `Erro ao gerar o vídeo "${payload.new.title}". ${payload.new.error_message || 'Tente novamente.'}`,
+                variant: "destructive",
+              });
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
     }
-  }, [user]);
+  }, [user, toast]);
 
   const loadChatHistory = async () => {
     try {
@@ -207,8 +244,19 @@ export default function Chat() {
                       >
                         <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                         {message.video_id && (
-                          <div className="mt-2 text-xs opacity-75">
-                            Vídeo gerado: {message.video_id}
+                          <div className="mt-2 p-2 bg-muted rounded-md">
+                            <p className="text-xs text-muted-foreground mb-1">Vídeo relacionado:</p>
+                            <div className="text-xs">
+                              ID: {message.video_id}
+                              {videos.find(v => v.id === message.video_id) && (
+                                <span className="ml-2">
+                                  Status: {videos.find(v => v.id === message.video_id)?.status === 'completed' ? '✅ Concluído' : 
+                                          videos.find(v => v.id === message.video_id)?.status === 'processing' ? '⏳ Processando' :
+                                          videos.find(v => v.id === message.video_id)?.status === 'failed' ? '❌ Falhou' : 
+                                          '⏳ Gerando'}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>

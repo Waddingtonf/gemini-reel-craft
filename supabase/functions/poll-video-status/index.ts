@@ -133,7 +133,8 @@ serve(async (req) => {
         }
       } catch (error) {
         console.error(`Error checking video ${video.id}:`, error);
-        results.push({ id: video.id, status: 'error', error: error.message });
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        results.push({ id: video.id, status: 'error', error: errorMessage });
       }
     }
 

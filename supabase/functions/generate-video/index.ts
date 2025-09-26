@@ -154,11 +154,32 @@ serve(async (req) => {
       .eq('id', videoRecord.id);
 
     if (updateError) {
-      console.error('Error updating video record:', updateError);
+      console.error('Failed to update video record with operation_name:', updateError);
+      
+      // Mark video as failed if we can't update it with operation name
+      await supabaseClient
+        .from('videos')
+        .update({
+          status: 'failed',
+          error_message: 'Failed to update video with operation name'
+        })
+        .eq('id', videoRecord.id);
+        
+      throw new Error('Failed to update video record with operation name');
     }
 
-    // Save AI response to chat history
-    const aiResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || 'Video generated successfully!';
+    // Save prompt to chat history
+    await supabaseClient
+      .from('prompts')
+      .insert({
+        user_id: user.id,
+        content: prompt,
+        type: 'user',
+        video_id: videoRecord.id
+      });
+
+    // Save AI response to chat history indicating video is processing
+    const aiResponse = 'Video generation started! Your video is now being processed. You will be notified when it\'s ready.';
     await supabaseClient
       .from('prompts')
       .insert({

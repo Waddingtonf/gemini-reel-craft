@@ -114,39 +114,51 @@ export type Database = {
       }
       videos: {
         Row: {
+          completed_at: string | null
           created_at: string
           duration: number | null
+          error_message: string | null
           file_size: number | null
           id: string
+          operation_name: string | null
           prompt: string
           status: string
           title: string
           updated_at: string
           user_id: string
+          video_uri: string | null
           video_url: string | null
         }
         Insert: {
+          completed_at?: string | null
           created_at?: string
           duration?: number | null
+          error_message?: string | null
           file_size?: number | null
           id?: string
+          operation_name?: string | null
           prompt: string
           status?: string
           title: string
           updated_at?: string
           user_id: string
+          video_uri?: string | null
           video_url?: string | null
         }
         Update: {
+          completed_at?: string | null
           created_at?: string
           duration?: number | null
+          error_message?: string | null
           file_size?: number | null
           id?: string
+          operation_name?: string | null
           prompt?: string
           status?: string
           title?: string
           updated_at?: string
           user_id?: string
+          video_uri?: string | null
           video_url?: string | null
         }
         Relationships: []
@@ -156,7 +168,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      poll_veo_videos: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never
